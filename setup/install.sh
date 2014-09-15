@@ -1,23 +1,9 @@
 #!/bin/bash
 
-# config
-CONTAINER_ID="banana"
-VIRTUAL_DOMAIN="banana.dev"
+echo "Reading config...."
+source ./config/machine.conf
 
-# vm configuration
-USER="devmonkey"
-DB_USER="dbuser"
-
-# git configuration
-GIT_USER="devmonkey"
-GIT_NAME="Cheetah TheMonkey"
-GIT_EMAIL="devmonkey@banana.dev"
-
-PROJECTS=( `cat "projects.list" `)
-
-# projects subpaths (relative to project root dir)
-PROJECT_PATH_CONFIG="/etc"
-PROJECT_PATH_DUMPS="/etc"
+PROJECTS=( `cat "./config/projects.list" `)
 
 #######################################################################
 
@@ -29,17 +15,46 @@ function system_configure() {
     echo "${bold}==> Configure system ...${normal}"
     echo "==> Using user" $USER
 
+    if [ true == "$MONGODB_ENABLED" ]; then
+        # http://docs.mongodb.org/manual/tutorial/install-mongodb-on-ubuntu/
+        sudo apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv 7F0CEB10
+        echo 'deb http://downloads-distro.mongodb.org/repo/ubuntu-upstart dist 10gen' | sudo tee /etc/apt/sources.list.d/mongodb.list
+    fi
+
+    if [ true == "$ANSIBLE_ENABLED" ]; then
+        sudo apt-add-repository -y ppa:ansible/ansible
+    fi
+
     # Mise à jour: basic packages
     sudo apt-get update
-	sudo apt-get -y install whois mcrypt git
-	
+	sudo apt-get -y install whois mcrypt 
+
+    if [ true == "$GIT_ENABLED" ]; then
+        sudo apt-get -y install git
+	fi
+
+    if [ true == "$SVN_ENABLED" ]; then
+        sudo apt-get -y install subversion
+    fi
+
+    if [ true == "$NODE_ENABLED" ]; then
+        sudo apt-get -y install nodejs supervisor
+    fi    
+
+    if [ true == "$MONGODB_ENABLED" ]; then
+        sudo apt-get -y install mongodb-org
+    fi
+
 	system_check_user
 
 	system_check_folders
     
     system_configure_sql
     
-    system_configure_git   
+    if [ true == "$GIT_ENABLED" ]; then
+        system_configure_git
+    fi
+
 }
 
 function system_check_user() {
@@ -117,11 +132,11 @@ function system_configure_sql() {
     sql="mysql -u ${SQL_USER} -p${SQL_PASSWORD}"
 
     # Look for database dumps if any
-    count=`ls -1 /setup_data/*.sql 2>/dev/null | wc -l`
+    count=`ls -1 ${SHARED_SETUP_MOUNT}/*.sql 2>/dev/null | wc -l`
 
     if [ $count != 0 ]
     then 
-        databases=$( ls /setup_data/*.sql | sed 's/.*\///' )
+        databases=$( ls $SHARED_SETUP_MOUNT/*.sql | sed 's/.*\///' )
         for database in $databases; do
             
             # Extract database name:
@@ -136,7 +151,7 @@ function system_configure_sql() {
             echo "DROP   DATABASE  IF EXISTS ${db}" | $sql
             echo "CREATE DATABASE ${db}" | $sql
             
-            $sql ${db} < "/setup_data/$database"
+            $sql ${db} < "$SHARED_SETUP_MOUNT/$database"
         done
     fi  
 
@@ -155,9 +170,9 @@ function system_configure_git() {
         echo -e "[user]\n\tname = $GIT_NAME\n\temail = $GIT_EMAIL" | sudo -u $USER tee -a /home/$USER/.gitconfig          
     fi  
     
-    if [ -f /setup_data/.gitconfig ]; then
+    if [ -f $SHARED_SETUP_MOUNT/.gitconfig ]; then
         echo '==> Using custom .gitconfig file...'
-        sudo -u $USER cp /setup_data/.gitconfig /home/$USER/.gitconfig
+        sudo -u $USER cp $SHARED_SETUP_MOUNT/.gitconfig /home/$USER/.gitconfig
     fi  
   
 }
@@ -168,7 +183,9 @@ function system_install() {
 
     echo "${bold}==> Install system ...${normal}"
     install_system_packages
-	install_ansible
+	if [ true == "$ANSIBLE_ENABLED" ]; then
+        install_ansible
+    fi
     initialize_ssh
 }
 
@@ -195,10 +212,7 @@ function install_ansible () {
     echo "${bold}==> Install ansible ...${normal}"
 
     if [ ! -f /usr/bin/ansible ]; then
-	   sudo apt-get -y install software-properties-common
-	   sudo apt-add-repository -y ppa:ansible/ansible
-	   sudo apt-get update
-	   sudo apt-get -y install ansible	
+	   sudo apt-get -y install software-properties-common ansible	
 	fi
 
     if [ ! -f /home/$USER/ansible_hosts ]; then
@@ -206,9 +220,9 @@ function install_ansible () {
         sudo -u $USER touch /home/$USER/ansible_hosts
     fi	
 	
-	if [ -f /setup_data/ansible_hosts ]; then
+	if [ -f $SHARED_SETUP_MOUNT/ansible_hosts ]; then
 		echo '==> Using custom ansible_hosts file...'
-		sudo -u $USER cp /setup_data/ansible_hosts /home/$USER/ansible_hosts
+		sudo -u $USER cp $SHARED_SETUP_MOUNT/ansible_hosts /home/$USER/ansible_hosts
 	fi	
 	
     # Remove existing line from the profile file:
@@ -228,9 +242,9 @@ function initialize_ssh() {
         sudo -u $USER mkdir /home/$USER/.ssh
     fi
     
-	if [ -f /setup_data/id_rsa ]; then
+	if [ -f $SHARED_SETUP_MOUNT/id_rsa ]; then
 		echo '==> Copying provided private key file...'
-		sudo cp /setup_data/id_rsa /home/$USER/.ssh/id_rsa
+		sudo cp $SHARED_SETUP_MOUNT/id_rsa /home/$USER/.ssh/id_rsa
         sudo chown $USER:$USER /home/$USER/.ssh/id_rsa
 		sudo -u $USER chmod 600 /home/$USER/.ssh/id_rsa
 	fi
@@ -255,40 +269,67 @@ function projects_install() {
     done
 
     sudo service apache2 restart
+    
+    if [ true == "$NODE_ENABLED" ]; then
+        sudo service supervisor restart
+    fi
+
     echo "${bold}==> Install done!${normal}"
 }
 
 function project_init() {
-    git_name="$1"
-    project=$( echo "$git_name" | sed 's/.*\/\(.*\)\.git/\1/' )
 
-    echo "${bold}==> Installing project ${project}...${normal}"
-	
-	# Création des dossiers avec droits et permissions
-    echo '==> Setting up directories and project paths...'
-	if [ ! -d "$TM_PATH_SOURCE/$project" ]; then sudo -u $USER mkdir "$TM_PATH_SOURCE/$project"; fi
-	if [ ! -d "$TM_PATH_ETC/$project" ]; then sudo -u $USER mkdir "$TM_PATH_ETC/$project"; fi
-	if [ ! -d "$TM_PATH_LOG/$project" ]; then sudo -u $USER mkdir "$TM_PATH_LOG/$project"; fi
-	if [ ! -d "$TM_PATH_VAR/$project" ]; then sudo -u $USER mkdir "$TM_PATH_VAR/$project"; fi
-	if [ ! -d "$TM_PATH_CACHE/$project" ]; then sudo -u $USER mkdir "$TM_PATH_CACHE/$project"; fi
-	
-	# apache group assign
-    echo '==> Setting up access rights...'
-    sudo chown "$USER:www-data" "$TM_PATH_LOG/$project"
-    sudo chown "$USER:www-data" "$TM_PATH_VAR/$project"
-    sudo chown "$USER:www-data" "$TM_PATH_CACHE/$project"	
-	
-	initialize_project_sources "$1"
+    project_path="$1"
+    project_type=$( echo "$project_path" | sed -r 's/(^git|^svn).*/\1/' )
+
+    if [ 'git' == $project_type ] && [ true == "$GIT_ENABLED" ]; then
+        project=$( echo "$project_path" | sed 's/.*\/\(.*\)\.git/\1/' )
+        initialize_project_directories "$project"
+        initialize_project_sources_git "$project_path"
+
+    elif [ 'svn' == $project_type ] && [ true == "$SVN_ENABLED" ]; then
+        project=$( echo "$project_path" |  sed 's/.*\/\(.*\)/\1/' )
+        initialize_project_directories "$project"
+        initialize_project_sources_svn "$project_path"
+    fi    
+
     initialize_project_configuration "$project"
     echo "${bold}==> Project ${project} installed to ${TM_PATH_SOURCE}/${project}!${normal}"
 }
 
-function initialize_project_sources() {
-	git_name="$1"
-	project=$( echo "$git_name" | sed 's/.*\/\(.*\)\.git/\1/' )
-	
-    echo "${bold}==> Cloning project sources from ${git_name}...${normal}"
-	sudo -u $USER git clone "$git_name" "$TM_PATH_SOURCE/$project"
+function initialize_project_directories() {
+
+    project="$1"
+
+    echo "${bold}==> Installing project ${project}...${normal}"
+    
+    # Création des dossiers avec droits et permissions
+    echo '==> Setting up directories and project paths...'
+    if [ ! -d "$TM_PATH_SOURCE/$project" ]; then sudo -u $USER mkdir "$TM_PATH_SOURCE/$project"; fi
+    if [ ! -d "$TM_PATH_ETC/$project" ]; then sudo -u $USER mkdir "$TM_PATH_ETC/$project"; fi
+    if [ ! -d "$TM_PATH_LOG/$project" ]; then sudo -u $USER mkdir "$TM_PATH_LOG/$project"; fi
+    if [ ! -d "$TM_PATH_VAR/$project" ]; then sudo -u $USER mkdir "$TM_PATH_VAR/$project"; fi
+    if [ ! -d "$TM_PATH_CACHE/$project" ]; then sudo -u $USER mkdir "$TM_PATH_CACHE/$project"; fi
+    
+    # apache group assign
+    echo '==> Setting up access rights...'
+    sudo chown "$USER:www-data" "$TM_PATH_LOG/$project"
+    sudo chown "$USER:www-data" "$TM_PATH_VAR/$project"
+    sudo chown "$USER:www-data" "$TM_PATH_CACHE/$project"       
+}
+
+function initialize_project_sources_git() {
+    project_path="$1"
+    project=$( echo "$project_path" | sed 's/.*\/\(.*\)\.git/\1/' )
+    echo "${bold}==> Cloning project sources from ${project_path}...${normal}"
+    sudo -u $USER git clone "$project_path" "$TM_PATH_SOURCE/$project"
+}
+
+function initialize_project_sources_svn() {
+    project_path="$1"
+    project=$( echo "$project_path" |  sed 's/.*\/\(.*\)/\1/' )
+    echo "${bold}==> Checkout project sources from ${project_path}...${normal}"
+    sudo -u $USER svn checkout "$project_path" "$TM_PATH_SOURCE/$project"
 }
 
 function initialize_project_configuration() {
@@ -328,8 +369,18 @@ function initialize_project_configuration() {
             sudo ln -s "$TM_PATH_ETC/$project/virtualhost.conf" "/etc/apache2/sites-enabled/${project}.conf"
         fi
 
-        # we should be able to generate the virtualhost file !!!
+        # we should be able to generate the virtualhost file !
 
+        # Remove existing supervisor configuration file:
+        if [ -f "/etc/supervisor/conf.d/${project}.conf" ]; then
+            sudo rm "/etc/supervisor/conf.d/${project}.conf"
+        fi
+        
+        # Create the new supervisor symbolik link
+        if [ -f "$TM_PATH_ETC/$project/supervisor.conf" ]; then
+            echo "${bold}==> Setting up provided supervisor configuration ...${normal}"
+            sudo ln -s "$TM_PATH_ETC/$project/supervisor.conf" "/etc/supervisor/conf.d/${project}.conf"
+        fi        
 
         # Look for database dumps if any
         count=`ls -1 $src/$PROJECT_PATH_DUMPS/*.sql 2>/dev/null | wc -l`

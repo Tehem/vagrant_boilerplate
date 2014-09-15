@@ -8,7 +8,6 @@ About the example project
 
 Scripts are configured by default to work out-of-the-box with an example dummy project named [vagrant_boilerplate_example](https://github.com/Tehem/vagrant_boilerplate_example). A working private key is provided (passphrase is 'banana'). The final url to use to check the working project is : http://vagrant_boilerplate_example.banana.dev:8080
 
-
 Installation
 ------------
 
@@ -16,21 +15,22 @@ Installation
 
 2. Clone the project to your development machine which is to be the host of the development VM: run `git clone https://github.com/Tehem/vagrant_boilerplate.git`
 
-3. Edit the `projects.list` file in setup directory, to add your project git paths.
-
-4. Optionally edit the [`Vagrantfile`](https://docs.vagrantup.com/v2/vagrantfile/index.html) to change settings like the box you want or other vagrant options.
-By default your VM will run a [Ubuntu Server 14.04 LTS (Trusty Tahr)](https://vagrantcloud.com/ubuntu/boxes/trusty64) without gui, and will be accessible through port 8080 of the host machine.
-
-5. Optionally edit `install.sh` in setup directory, especially to setup various VM settings :
+3. Edit the [`machine.conf`] file in `setup/config` directory, to configure the whole script:
   - `CONTAINER_ID`: name of the container used for all your project and/or specific directories. Can be the name of your company of website.
   - `VIRTUAL_DOMAIN`: a virtual domain name to be created for your web projects. You will access them with urls like <project_name>.<virtual_domain> in your browser. You need to edit your host machine host file (*nix : `/etc/hosts`, Windows: `C:/Windows/System32/drivers/etc/hosts`) to add an entry for your VM like: `127.0.0.1 <your virtual domain name>`.
   - `USER`: user that will be created in the virtual machine. Usually the unix account user name of the developer.
   - `DB_USER`: a default DB user name for your web application. He will have access to your project databases and should be used in your projects configurations.
   - `GIT_USER`, `GIT_NAME`, `GIT_EMAIL`: default global git values to set up.
 
-6. Optionally edit `ansible_hosts` in setup directory to configure your [Ansible](http://www.ansible.com/home) [inventory](http://docs.ansible.com/intro_inventory.html)
-7. Optionally add an `id_rsa` file to setup your VM box user with a private key for SSH operations.
-8. Optionally add `.sql` files for them to be automatically integrated in the host machine mysql server (one file per database).
+Other options and configurations are available in the file, like tools installing.
+
+4. Edit the [`projects.list`] file in `setup/config` directory, to add your project git paths.
+
+5. Optionally edit the [`Vagrantfile`](https://docs.vagrantup.com/v2/vagrantfile/index.html) to change settings like the box you want or other vagrant options.
+By default your VM will run a [Ubuntu Server 14.04 LTS (Trusty Tahr)](https://vagrantcloud.com/ubuntu/boxes/trusty64) without gui, and will be accessible through port 8080 of the host machine.
+
+6. Optionally add an `id_rsa` file to setup your VM box user with a private key for SSH operations.
+7. Optionally add `.sql` files for them to be automatically integrated in the host machine mysql server (one file per database).
 
 Usage
 -----
@@ -41,7 +41,7 @@ Usage
 - Run the install script: `./install.sh`
 - Answear any prompt coming (ssh hosts acknowledgements, ssh key passphrase, etc.)
 - Your machine is ready, you should see a message `Install done!`
-- You can point your browser to your virtual domain name (default http://vagrant_boilerplate_example.banana.dev:8080) to see your project live (do not forget to use the port you specified in Vagrantfile if different from default 80)
+- You can point your browser to your virtual domain name / port (default http://vagrant_boilerplate_example.banana.dev:8080) to see your project live
 
 Contributing
 ------------
