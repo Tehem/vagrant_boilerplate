@@ -1,14 +1,30 @@
 #!/bin/bash
 
+bold=`tput bold`
+normal=`tput sgr0`
+
+# Getting the project id (standard SVN one)
+ENV=$( echo "$1" | sed 's,/,,g' )
+if [ "$ENV" = "" ]; then
+    echo "Please provide a configuration environment name, available environments: "
+    ls ./config/*.conf | sed 's/.*\/\(.*\).conf/\1/'
+    exit
+fi
+
+if [ ! -f ./config/$ENV.conf ]; then
+    echo "No configuration file found (${bold}"./config/$ENV.conf"${normal}), available environments: "
+    ls ./config/*.conf | sed 's/.*\/\(.*\).conf/\1/'
+    exit
+fi  
+
+#######################################################################
+
 echo "Reading config...."
-source ./config/machine.conf
+source ./config/$ENV.conf
 
 PROJECTS=( `cat "./config/projects.list" `)
 
 #######################################################################
-
-bold=`tput bold`
-normal=`tput sgr0`
 
 function system_configure() {
     
@@ -38,7 +54,7 @@ function system_configure() {
     fi
 
     if [ true == "$NODE_ENABLED" ]; then
-        sudo apt-get -y install nodejs supervisor
+        sudo apt-get -y install nodejs supervisor npm
     fi    
 
     if [ true == "$MONGODB_ENABLED" ]; then
@@ -183,9 +199,15 @@ function system_install() {
 
     echo "${bold}==> Install system ...${normal}"
     install_system_packages
+
 	if [ true == "$ANSIBLE_ENABLED" ]; then
         install_ansible
     fi
+    
+    if [ true == "$PHABRICATOR_TOOLS_ENABLED" ]; then
+        install_phabricator_tools
+    fi
+
     initialize_ssh
 }
 
@@ -230,6 +252,29 @@ function install_ansible () {
 
 	# Append the new line to the bahs profile:
     echo "ANSIBLE_HOSTS=~/ansible_hosts" | sudo -u $USER tee -a /home/$USER/.bashrc
+}
+
+function install_phabricator_tools {
+
+    echo "${bold}==> Install Phabricator tools ...${normal}"
+
+    if [ ! -d /home/$USER/arc_tools ]; then
+        echo '==> Creating folder ~/arc_tools...'
+        sudo -u $USER mkdir /home/$USER/arc_tools
+    fi
+
+    # Clone arcanist & associated tools
+    sudo -u $USER git clone https://github.com/phacility/libphutil.git /home/$USER/arc_tools/libphutil
+    sudo -u $USER git clone https://github.com/phacility/arcanist.git /home/$USER/arc_tools/arcanist
+
+    if [ -d /home/$USER/arc_tools/arcanist ]; then
+
+        # Remove existing line from the profile file:
+        sudo sed -i "/^arc_tools.*$/d" /home/$USER/.bashrc
+
+        # Append the new line to the bash profile:
+        echo "PATH=$PATH:/home/$USER/arc_tools/arcanist/bin/" | sudo -u $USER tee -a /home/$USER/.bashrc
+    fi
 }
 
 function initialize_ssh() {
