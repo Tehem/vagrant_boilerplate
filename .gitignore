@@ -1,1 +1,3 @@
 .vagrant/**
+logs/banana/**
+sources/banana/**
