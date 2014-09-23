@@ -31,6 +31,20 @@ function system_configure() {
     echo "${bold}==> Configure system ...${normal}"
     echo "==> Using user" $USER
 
+	if [ true == "$JENKINS_ENABLED" ]; then
+		# Get Jenkins repository:
+		wget -q -O - https://jenkins-ci.org/debian/jenkins-ci.org.key | sudo apt-key add -
+		sudo sh -c 'echo deb http://pkg.jenkins-ci.org/debian binary/ > /etc/apt/sources.list.d/jenkins.list'
+	fi
+	
+	if [ true == "$SELENIUM_ENABLED" ]; then
+		# Add Google public key to apt
+		wget -q -O - "https://dl-ssl.google.com/linux/linux_signing_key.pub" | sudo apt-key add -
+
+		# Add Google to the apt-get source list
+		sudo sh -c 'echo deb http://dl.google.com/linux/chrome/deb/ stable main > /etc/apt/sources.list.d/google-chrome-stable.list'
+	fi
+	
     if [ true == "$MONGODB_ENABLED" ]; then
         # http://docs.mongodb.org/manual/tutorial/install-mongodb-on-ubuntu/
         sudo apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv 7F0CEB10
@@ -43,7 +57,7 @@ function system_configure() {
 
     # Mise à jour: basic packages
     sudo apt-get update
-	sudo apt-get -y install whois mcrypt 
+	sudo apt-get -y install whois mcrypt unzip
 
     if [ true == "$GIT_ENABLED" ]; then
         sudo apt-get -y install git
@@ -51,14 +65,6 @@ function system_configure() {
 
     if [ true == "$SVN_ENABLED" ]; then
         sudo apt-get -y install subversion
-    fi
-
-    if [ true == "$NODE_ENABLED" ]; then
-        sudo apt-get -y install nodejs supervisor npm
-    fi    
-
-    if [ true == "$MONGODB_ENABLED" ]; then
-        sudo apt-get -y install mongodb-org
     fi
 
 	system_check_user
@@ -199,7 +205,8 @@ function system_install() {
 
     echo "${bold}==> Install system ...${normal}"
     install_system_packages
-
+    initialize_ssh
+	
 	if [ true == "$ANSIBLE_ENABLED" ]; then
         install_ansible
     fi
@@ -208,7 +215,9 @@ function system_install() {
         install_phabricator_tools
     fi
 
-    initialize_ssh
+    if [ true == "$JENKINS_ENABLED" ]; then
+        install_jenkins
+    fi		
 }
 
 function install_system_packages() {
@@ -219,14 +228,90 @@ function install_system_packages() {
 	sudo apt-get -y install mysql-server
 	
     # Installation des paquets utiles:
-    sudo apt-get -y install openssh-client openssh-server php5 libapache2-mod-php5 php5-cli php5-mysql php5-gd curl php5-curl
+    sudo apt-get -y install openssh-client openssh-server php5 libapache2-mod-php5 php5-cli php5-mysql php5-gd curl php5-curl puppet
     
+	# other packages
+    if [ true == "$NODE_ENABLED" ]; then
+        sudo apt-get -y install nodejs supervisor npm
+    fi    
+
+    if [ true == "$MONGODB_ENABLED" ]; then
+        sudo apt-get -y install mongodb-org
+    fi
+
+	if [ true == "$MOCHA_ENABLED" ] && [ true == "$NODE_ENABLED" ]; then
+	    # For Public APIs testing:
+		sudo npm install -g mocha
+		
+		# Required by mocha to execute correctly:
+		sudo ln -s /usr/bin/nodejs /usr/bin/node
+	fi
+	
+	if [ true == "$SELENIUM_ENABLED" ]; then
+	
+		echo "${bold}==> Install Selenium ...${normal}"
+	
+		# --- Ruby Gem installation
+		sudo apt-get -y install xvfb # For Selenium testing
+		sudo apt-get -y install google-chrome-stable
+		sudo apt-get -y install openjdk-7-jre
+		sudo apt-get -y install ruby
+		sudo apt-get -y install ruby-bundler
+		sudo gem install rspec
+		
+		# Headless Selenium:
+		# REF: http://www.chrisle.me/2013/08/running-headless-selenium-with-chrome/
+		
+		# Not validated:
+		sudo npm install -g selenium-webdriver
+		sudo apt-get -y install dbus-x11
+		sudo apt-get -y install firefox	
+		
+		# Selenium chrome install:
+		# REF: http://www.chrisle.me/2013/08/running-headless-selenium-with-chrome/
+		wget --directory-prefix=/tmp/ http://chromedriver.storage.googleapis.com/2.10/chromedriver_linux64.zip
+		unzip /tmp/chromedriver_linux64.zip
+		sudo mv /tmp/chromedriver /usr/local/bin/
+		
+		# Get the standalone Selenium:
+		wget --directory-prefix=/tmp/ https://selenium.googlecode.com/files/selenium-server-standalone-2.35.0.jar
+		sudo mv /tmp/selenium-server-standalone-2.35.0.jar /usr/local/bin		
+	fi
+	
+    # Composer installation:
+    curl -sS https://getcomposer.org/installer | php
+    sudo mv composer.phar /usr/local/bin/composer
+	
     # MySQL user creation:
     echo "${bold}==> Create DB user" $SQL_USER "...${normal}"
     echo "GRANT ALL PRIVILEGES ON *.* TO '${SQL_USER}'@'localhost' IDENTIFIED BY '${SQL_PASSWORD}' WITH GRANT OPTION;" | mysql -u root -proot	
 	
     sudo a2enmod rewrite
     sudo a2enmod ssl    
+}
+
+function initialize_ssh() {
+
+    echo "${bold}==> Configure SSH ...${normal}"
+
+    # Copie de la clef RSA:
+    if [ ! -d /home/$USER/.ssh ]; then
+        echo '==> Creating folder ~/.ssh...'
+        sudo -u $USER mkdir /home/$USER/.ssh
+    fi
+    
+	if [ -f $SHARED_SETUP_MOUNT/id_rsa ]; then
+		echo '==> Copying provided private key file...'
+		sudo cp $SHARED_SETUP_MOUNT/id_rsa /home/$USER/.ssh/id_rsa
+        sudo chown $USER:$USER /home/$USER/.ssh/id_rsa
+		sudo -u $USER chmod 600 /home/$USER/.ssh/id_rsa
+	fi
+	
+    if [ ! -f /home/$USER/.ssh/id_rsa ]; then
+        echo "==> Creating empty private key file ${bold}you need to put a valid key in there!${normal}..."
+        sudo -u $USER touch /home/$USER/.ssh/id_rsa
+        sudo -u $USER chmod 600 /home/$USER/.ssh/id_rsa
+    fi
 }
 
 function install_ansible () {
@@ -277,28 +362,114 @@ function install_phabricator_tools {
     fi
 }
 
-function initialize_ssh() {
+function install_jenkins {
+	echo "${bold}==> Install Jenkins ...${normal}"
+	if [ ! -d /var/lib/jenkins ]; then
+		
+		sudo apt-get -y install jenkins
+		        
+        # Jenkins URL export:
+        JENKINS_URL="http://localhost:8080"
+        
+        # Waiting the Jenkins to start:
+        while [ ! -f "/tmp/jenkins-cli.jar" ]; do
+            sleep 5
+            
+            # Get the Jenkins CLI jar file:
+            sudo wget "${JENKINS_URL}/jnlpJars/jenkins-cli.jar" 2> /dev/null
+            
+        done
+        
+        # Move the jar file to the Jenkins directory:
+        sudo mv "/tmp/jenkins-cli.jar" "/var/lib/jenkins/"
 
-    echo "${bold}==> Configure SSH ...${normal}"
+        # Execute commands for the installation:
+        jenkins="java -jar /var/lib/jenkins/jenkins-cli.jar -s ${JENKINS_URL}"
+        
+        # Copy default Jenkins config.xml to enable anonymous user to
+        # perform system configuration update
+        #
+        # TODO: place this file in a release management project.
+        if [ -f "$SHARED_SETUP_MOUNT/config/jenkins/jenkins.xml" ]; then
+            sudo cp "$SHARED_SETUP_MOUNT/config/jenkins/jenkins.xml" /var/lib/jenkins/config.xml
+        fi
+        
+        # Jenkins finishing configuring:
+        if [ -f "$SHARED_SETUP_MOUNT/config/jenkins/jenkins.xml" ]; then
+            sudo cp "$SHARED_SETUP_MOUNT/config/jenkins/jenkins.security.QueueItemAuthenticatorConfiguration.xml" /var/lib/jenkins/jenkins.security.QueueItemAuthenticatorConfiguration.xml
+        fi
+        
+        sudo chown jenkins /var/lib/jenkins/config.xml
+        sudo chown jenkins /var/lib/jenkins/jenkins.security.QueueItemAuthenticatorConfiguration.xml
+    
+		# install build template
+		curl https://raw.github.com/sebastianbergmann/php-jenkins-template/master/config.xml | $jenkins create-job php-template
 
-    # Copie de la clef RSA:
-    if [ ! -d /home/$USER/.ssh ]; then
-        echo '==> Creating folder ~/.ssh...'
-        sudo -u $USER mkdir /home/$USER/.ssh
+        version=$( $jenkins version )
+		echo "${bold}==> Jenkins $version ${normal}"
+        
+        jenkins_safe_restart
+        
+        install_system_packages_jenkins_plugins		
+		
+	fi
+}
+
+function install_jenkins_plugins {
+
+    # Initialize Jenkins available plugins list:
+    # REF: https://github.com/fnichol/chef-jenkins/issues/9
+    if [ ! -d "/var/lib/jenkins/updates" ]; then
+        sudo mkdir "/var/lib/jenkins/updates"
     fi
     
-	if [ -f $SHARED_SETUP_MOUNT/id_rsa ]; then
-		echo '==> Copying provided private key file...'
-		sudo cp $SHARED_SETUP_MOUNT/id_rsa /home/$USER/.ssh/id_rsa
-        sudo chown $USER:$USER /home/$USER/.ssh/id_rsa
-		sudo -u $USER chmod 600 /home/$USER/.ssh/id_rsa
-	fi
-	
-    if [ ! -f /home/$USER/.ssh/id_rsa ]; then
-        echo "==> Creating empty private key file ${bold}you need to put a valid key in there!${normal}..."
-        sudo -u $USER touch /home/$USER/.ssh/id_rsa
-        sudo -u $USER chmod 600 /home/$USER/.ssh/id_rsa
+    if [ ! -f "/var/lib/jenkins/updates/default.json" ]; then
+        wget http://updates.jenkins-ci.org/update-center.json -qO- | sed '1d;$d' > /tmp/default.json
+        sudo cp /tmp/default.json "/var/lib/jenkins/updates/default.json"
+        sudo chown -R jenkins "/var/lib/jenkins/updates"
     fi
+
+    # Plugins installation stack!
+    # Execute commands for the installation:
+    jenkins="java -jar /var/lib/jenkins/jenkins-cli.jar -s http://localhost:8080"
+    
+    # List of plugins
+	plugins="translation antisamy-markup-formatter cvs git-chooser-alternative jshint-checkstyle violation-columns plot external-monitor-job git-client analysis-collector maven-plugin htmlpublisher matrix-auth credentials scm-api measurement-plots ldap junit ssh-credentials pmd javadoc php cloverphp violations greenballs mapdb-api pam-auth git matrix-project ant xunit ssh-slaves subversion checkstyle analysis-core dry phing jdepend mailer windows-slaves crap4j openid openid4java"
+
+    # Install required plugins:
+    $jenkins install-plugin ${plugins}
+    
+    # Jenkins plugins update:
+    # REF: http://stackoverflow.com/questions/7709993/how-can-i-update-jenkins-plugins-from-the-terminal
+    UPDATE_LIST=$( $jenkins list-plugins | grep -e '(' | sed 's/ .*$//' );
+    
+    if [ ! -z "${UPDATE_LIST}" ]; then
+        $jenkins install-plugin ${UPDATE_LIST};
+    fi
+    
+    # Safe restart of Jenkins)
+    jenkins_safe_restart
+}
+
+#######################################################################
+
+function jenkins_safe_restart() {
+    
+    # Get the Jenkins Session ID:
+	JENKINS_URL="http://localhost:8080"
+	jenkins="java -jar /var/lib/jenkins/jenkins-cli.jar -s ${JENKINS_URL}"
+    session_id=$( $jenkins session-id )
+    
+    $jenkins safe-restart
+    
+    v=""
+    while [[ ( "$session_id" == "$v" ) || ( "" == "$v" ) ]]; do
+        
+        sleep 2
+        
+        v=$( $jenkins session-id 2> /dev/null )
+        
+    done
 }
 
 #######################################################################
