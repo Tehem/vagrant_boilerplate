@@ -218,6 +218,8 @@ function system_install() {
     if [ true == "$JENKINS_ENABLED" ]; then
         install_jenkins
     fi		
+	
+	echo "${bold}==> Install done!${normal}"
 }
 
 function install_system_packages() {
@@ -252,30 +254,34 @@ function install_system_packages() {
 		echo "${bold}==> Install Selenium ...${normal}"
 	
 		# --- Ruby Gem installation
-		sudo apt-get -y install xvfb # For Selenium testing
-		sudo apt-get -y install google-chrome-stable
-		sudo apt-get -y install openjdk-7-jre
-		sudo apt-get -y install ruby
-		sudo apt-get -y install ruby-bundler
-		sudo gem install rspec
+		sudo apt-get -y install google-chrome-stable openjdk-7-jre ruby ruby-bundler xvfb # For Selenium testing
+		
+		# gem list rspec
+		rspecok=`gem list rspec | grep rspec | wc -l`
+		if [ $rspecok -e 0 ];then
+			sudo gem install rspec
+		fi
 		
 		# Headless Selenium:
 		# REF: http://www.chrisle.me/2013/08/running-headless-selenium-with-chrome/
 		
 		# Not validated:
 		sudo npm install -g selenium-webdriver
-		sudo apt-get -y install dbus-x11
-		sudo apt-get -y install firefox	
+		sudo apt-get -y install dbus-x11 firefox	
 		
 		# Selenium chrome install:
 		# REF: http://www.chrisle.me/2013/08/running-headless-selenium-with-chrome/
-		wget --directory-prefix=/tmp/ http://chromedriver.storage.googleapis.com/2.10/chromedriver_linux64.zip
-		unzip /tmp/chromedriver_linux64.zip
-		sudo mv /tmp/chromedriver /usr/local/bin/
+		if [ ! -f /usr/local/bin/chromedriver ]; then
+			wget --directory-prefix=/tmp/ http://chromedriver.storage.googleapis.com/2.10/chromedriver_linux64.zip
+			unzip -o /tmp/chromedriver_linux64.zip
+			sudo mv chromedriver /usr/local/bin/
+		fi
 		
 		# Get the standalone Selenium:
-		wget --directory-prefix=/tmp/ https://selenium.googlecode.com/files/selenium-server-standalone-2.35.0.jar
-		sudo mv /tmp/selenium-server-standalone-2.35.0.jar /usr/local/bin		
+		if [ ! -f /usr/local/bin/selenium-server-standalone-2.35.0.jar ]; then
+			wget --directory-prefix=/tmp/ https://selenium.googlecode.com/files/selenium-server-standalone-2.35.0.jar
+			sudo mv /tmp/selenium-server-standalone-2.35.0.jar /usr/local/bin	
+		fi		
 	fi
 	
     # Composer installation:
@@ -349,7 +355,15 @@ function install_phabricator_tools {
     fi
 
     # Clone arcanist & associated tools
-    sudo -u $USER git clone https://github.com/phacility/libphutil.git /home/$USER/arc_tools/libphutil
+	if [ -d /home/$USER/arc_tools/arcanist/libphutil ]; then
+		sudo rm -rf /home/$USER/arc_tools/arcanist/libphutil
+	fi
+	
+	if [ -d /home/$USER/arc_tools/arcanist/arcanist ]; then
+		sudo rm -rf /home/$USER/arc_tools/arcanist/arcanist
+	fi
+	
+	sudo -u $USER git clone https://github.com/phacility/libphutil.git /home/$USER/arc_tools/libphutil
     sudo -u $USER git clone https://github.com/phacility/arcanist.git /home/$USER/arc_tools/arcanist
 
     if [ -d /home/$USER/arc_tools/arcanist ]; then
@@ -363,8 +377,9 @@ function install_phabricator_tools {
 }
 
 function install_jenkins {
+
 	echo "${bold}==> Install Jenkins ...${normal}"
-	if [ ! -d /var/lib/jenkins ]; then
+	if [ ! -d /var/lib/jenkins ] || [ ! -f /var/lib/jenkins/jenkins-cli.jar ]; then
 		
 		sudo apt-get -y install jenkins
 		        
@@ -373,49 +388,56 @@ function install_jenkins {
         
         # Waiting the Jenkins to start:
         while [ ! -f "/tmp/jenkins-cli.jar" ]; do
+			echo "Waiting for Jenkins to respond..."
             sleep 5
             
             # Get the Jenkins CLI jar file:
-            sudo wget "${JENKINS_URL}/jnlpJars/jenkins-cli.jar" 2> /dev/null
+            sudo wget  --directory-prefix=/tmp/ "${JENKINS_URL}/jnlpJars/jenkins-cli.jar" 2> /dev/null
             
         done
         
         # Move the jar file to the Jenkins directory:
         sudo mv "/tmp/jenkins-cli.jar" "/var/lib/jenkins/"
-
-        # Execute commands for the installation:
-        jenkins="java -jar /var/lib/jenkins/jenkins-cli.jar -s ${JENKINS_URL}"
-        
-        # Copy default Jenkins config.xml to enable anonymous user to
-        # perform system configuration update
-        #
-        # TODO: place this file in a release management project.
-        if [ -f "$SHARED_SETUP_MOUNT/config/jenkins/jenkins.xml" ]; then
-            sudo cp "$SHARED_SETUP_MOUNT/config/jenkins/jenkins.xml" /var/lib/jenkins/config.xml
-        fi
-        
-        # Jenkins finishing configuring:
-        if [ -f "$SHARED_SETUP_MOUNT/config/jenkins/jenkins.xml" ]; then
-            sudo cp "$SHARED_SETUP_MOUNT/config/jenkins/jenkins.security.QueueItemAuthenticatorConfiguration.xml" /var/lib/jenkins/jenkins.security.QueueItemAuthenticatorConfiguration.xml
-        fi
-        
-        sudo chown jenkins /var/lib/jenkins/config.xml
-        sudo chown jenkins /var/lib/jenkins/jenkins.security.QueueItemAuthenticatorConfiguration.xml
-    
-		# install build template
-		curl https://raw.github.com/sebastianbergmann/php-jenkins-template/master/config.xml | $jenkins create-job php-template
-
-        version=$( $jenkins version )
-		echo "${bold}==> Jenkins $version ${normal}"
-        
-        jenkins_safe_restart
-        
-        install_system_packages_jenkins_plugins		
-		
 	fi
+	
+	# Execute commands for the installation:
+	jenkins="java -jar /var/lib/jenkins/jenkins-cli.jar -s ${JENKINS_URL}"
+	
+	# Copy default Jenkins config.xml to enable anonymous user to
+	# perform system configuration update
+	#
+	# TODO: place this file in a release management project.
+	if [ -f "$SHARED_SETUP_MOUNT/config/jenkins/install-config.xml" ]; then
+		sudo cp "$SHARED_SETUP_MOUNT/config/jenkins/install-config.xml" /var/lib/jenkins/config.xml
+	fi
+	
+	# Jenkins finishing configuring:
+	if [ -f "$SHARED_SETUP_MOUNT/config/jenkins/jenkins.security.QueueItemAuthenticatorConfiguration.xml" ]; then
+		sudo cp "$SHARED_SETUP_MOUNT/config/jenkins/jenkins.security.QueueItemAuthenticatorConfiguration.xml" /var/lib/jenkins/jenkins.security.QueueItemAuthenticatorConfiguration.xml
+	fi
+	
+	sudo chown jenkins /var/lib/jenkins/config.xml
+	sudo chown jenkins /var/lib/jenkins/jenkins.security.QueueItemAuthenticatorConfiguration.xml
+
+	# install build template
+	curl https://raw.github.com/sebastianbergmann/php-jenkins-template/master/config.xml | $jenkins create-job php-template
+
+	version=$( $jenkins version )
+	echo "${bold}==> Jenkins $version ${normal}"
+	
+	jenkins_safe_restart
+	install_jenkins_plugins		
+		
+	if [ -f "$SHARED_SETUP_MOUNT/config/jenkins/jenkins.xml" ]; then
+		sudo cp "$SHARED_SETUP_MOUNT/config/jenkins/jenkins.xml" /var/lib/jenkins/config.xml
+	fi			
+
+	jenkins_safe_restart
 }
 
 function install_jenkins_plugins {
+
+	echo "${bold}==> Install Jenkins plugins ...${normal}"
 
     # Initialize Jenkins available plugins list:
     # REF: https://github.com/fnichol/chef-jenkins/issues/9
@@ -446,12 +468,10 @@ function install_jenkins_plugins {
     if [ ! -z "${UPDATE_LIST}" ]; then
         $jenkins install-plugin ${UPDATE_LIST};
     fi
-    
-    # Safe restart of Jenkins)
-    jenkins_safe_restart
+
 }
 
-#######################################################################
+#)######################################################################
 
 function jenkins_safe_restart() {
     
