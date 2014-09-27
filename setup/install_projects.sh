@@ -215,7 +215,7 @@ function initialize_project_configuration() {
                 
                 # DROP then CREATE database with mininium
                 # viable data:
-                sql="mysql -u ${SQL_USER} -p${SQL_PASSWORD}"
+                sql="mysql -u ${DB_USER} -p${DB_USER}"
                 echo "DROP   DATABASE  IF EXISTS ${db}" | $sql
                 echo "CREATE DATABASE ${db}" | $sql
                 

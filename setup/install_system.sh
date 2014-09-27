@@ -306,9 +306,9 @@ function initialize_ssh() {
         sudo -u $USER mkdir /home/$USER/.ssh
     fi
     
-	if [ -f $SHARED_SETUP_MOUNT/id_rsa ]; then
+	if [ -f $SHARED_SETUP_MOUNT/ssh/id_rsa ]; then
 		echo '==> Copying provided private key file...'
-		sudo cp $SHARED_SETUP_MOUNT/id_rsa /home/$USER/.ssh/id_rsa
+		sudo cp $SHARED_SETUP_MOUNT/ssh/id_rsa /home/$USER/.ssh/id_rsa
         sudo chown $USER:$USER /home/$USER/.ssh/id_rsa
 		sudo -u $USER chmod 600 /home/$USER/.ssh/id_rsa
 	fi
@@ -318,6 +318,31 @@ function initialize_ssh() {
         sudo -u $USER touch /home/$USER/.ssh/id_rsa
         sudo -u $USER chmod 600 /home/$USER/.ssh/id_rsa
     fi
+
+    if [ -f $SHARED_SETUP_MOUNT/ssh/config ]; then
+        echo '==> Copying provided private key file...'
+        sudo cp $SHARED_SETUP_MOUNT/ssh/config /home/$USER/.ssh/config
+        sudo chown $USER:$USER /home/$USER/.ssh/config
+    fi    
+
+    # Look for database dumps if any
+    count=`ls -1 ${SHARED_SETUP_MOUNT}/ssh/*.rsa 2>/dev/null | wc -l`
+
+    if [ $count != 0 ]
+    then 
+        keys=$( ls $SHARED_SETUP_MOUNT/ssh/*.rsa | sed 's/.*\///' )
+        for key in $keys; do
+            
+            # Extract database name:
+            name=$( echo $key | sed 's/\.rsa//' )
+            
+            # Adapt database name to the environment:
+            echo "${bold}==> Importing key ${name}...${normal}"
+            sudo cp $SHARED_SETUP_MOUNT/ssh/$key /home/$USER/.ssh/$key
+            sudo chown $USER:$USER /home/$USER/.ssh/$key
+            sudo -u $USER chmod 600 /home/$USER/.ssh/$key
+        done
+    fi      
 }
 
 function install_ansible () {
