@@ -6,3 +6,5 @@ setup/config/mac.conf
 setup/ssh/id_bitbucket.rsa
 
 setup/ssh/id_rsa.pub
+
+setup/config/projects.list
