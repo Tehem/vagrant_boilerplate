@@ -232,6 +232,14 @@ function install_system_packages() {
     # Installation des paquets utiles:
     sudo apt-get -y install openssh-client openssh-server php5 libapache2-mod-php5 php5-cli php5-mysql php5-gd curl php5-curl puppet
     
+    sudo debconf-set-selections <<< 'phpmyadmin phpmyadmin/reconfigure-webserver multiselect apache2'
+    sudo debconf-set-selections <<< 'phpmyadmin phpmyadmin/dbconfig-install boolean true'
+    sudo debconf-set-selections <<< 'phpmyadmin phpmyadmin/app-pass password dbuser'
+    sudo debconf-set-selections <<< 'phpmyadmin phpmyadmin/app-password-confirm password dbuser'
+    sudo debconf-set-selections <<< 'phpmyadmin phpmyadmin/mysql/admin-pass password root'
+    sudo debconf-set-selections <<< 'phpmyadmin phpmyadmin/mysql/app-pass password dbuser'
+    sudo apt-get -y install phpmyadmin
+
 	# other packages
     if [ true == "$NODE_ENABLED" ]; then
         sudo apt-get -y install nodejs supervisor npm
@@ -292,6 +300,7 @@ function install_system_packages() {
     echo "${bold}==> Create DB user" $SQL_USER "...${normal}"
     echo "GRANT ALL PRIVILEGES ON *.* TO '${SQL_USER}'@'localhost' IDENTIFIED BY '${SQL_PASSWORD}' WITH GRANT OPTION;" | mysql -u root -proot	
 	
+    sudo php5enmod mcrypt
     sudo a2enmod rewrite
     sudo a2enmod ssl    
 }
