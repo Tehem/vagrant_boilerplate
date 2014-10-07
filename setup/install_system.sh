@@ -86,7 +86,7 @@ function system_check_user() {
 	if [ $? -ne 0 ]; then
 		echo "${bold}==> Create user" $USER "and granting sudo privileges...${normal}"
 		PASS=$( mkpasswd $USER )
-		sudo useradd -d /home/$USER -m -G admin,sudo,vagrant,staff --password $PASS -s /bin/bash $USER
+		sudo useradd -d /home/$USER -m -G admin,sudo,vagrant,staff,adm --password $PASS -s /bin/bash $USER
 		sudo chown "$USER" /home/$USER
 	fi
 }
@@ -231,7 +231,19 @@ function install_system_packages() {
 	
     # Installation des paquets utiles:
     sudo apt-get -y install openssh-client openssh-server php5 libapache2-mod-php5 php5-cli php5-mysql php5-gd curl php5-curl puppet
-    
+
+    sudo debconf-set-selections <<< 'phpmyadmin phpmyadmin/dbconfig-install boolean true'
+    sudo debconf-set-selections <<< 'phpmyadmin phpmyadmin/app-password-confirm password root'
+    sudo debconf-set-selections <<< 'phpmyadmin phpmyadmin/mysql/admin-pass password root'
+    sudo debconf-set-selections <<< 'phpmyadmin phpmyadmin/mysql/app-pass password root'
+    sudo debconf-set-selections <<< 'phpmyadmin phpmyadmin/reconfigure-webserver multiselect apache2'
+    sudo apt-get -y install phpmyadmin
+    sudo ln -s /usr/share/phpmyadmin/ /var/www/html/phpmyadmin
+
+    # Enable error reporting, etc
+    sudo sed -i "s/error_reporting = .*/error_reporting = E_ALL/" /etc/php5/apache2/php.ini
+    sudo sed -i "s/display_errors = .*/display_errors = On/" /etc/php5/apache2/php.ini
+
 	# other packages
     if [ true == "$NODE_ENABLED" ]; then
         sudo apt-get -y install nodejs supervisor npm
