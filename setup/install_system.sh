@@ -254,6 +254,10 @@ function install_system_packages() {
         sudo apt-get -y install mongodb-org
     fi
 
+    if [ true == "$MEMCACHE_ENABLED" ]; then
+        sudo apt-get -y install php5-memcached memcached php5-memcache
+    fi
+
 	if [ true == "$MOCHA_ENABLED" ] && [ true == "$NODE_ENABLED" ]; then
 	    # For Public APIs testing:
 		sudo npm install -g mocha
