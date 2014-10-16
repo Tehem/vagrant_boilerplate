@@ -71,7 +71,7 @@ function system_configure() {
 
 	system_check_folders
     
-    system_configure_sql
+    #system_configure_sql
     
     if [ true == "$GIT_ENABLED" ]; then
         system_configure_git
@@ -435,7 +435,7 @@ function install_jenkins {
             sleep 5
             
             # Get the Jenkins CLI jar file:
-            sudo wget  --directory-prefix=/tmp/ "${JENKINS_URL}/jnlpJars/jenkins-cli.jar" 2> /dev/null
+            sudo wget --directory-prefix=/tmp/ "${JENKINS_URL}/jnlpJars/jenkins-cli.jar" 2> /dev/null
             
         done
         
