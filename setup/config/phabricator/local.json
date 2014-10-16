@@ -1,0 +1,7 @@
+{
+  "diffusion.ssh-user"   : "git",
+  "phd.user"             : "devmonkey",
+  "phabricator.base-uri" : "http:\/\/phabricator.banana.dev\/",
+  "mysql.pass"           : "dbuser",
+  "mysql.user"           : "dbuser"
+}

@@ -5,6 +5,7 @@ normal=`tput sgr0`
 
 # Getting the project id (standard SVN one)
 ENV=$( echo "$1" | sed 's,/,,g' )
+
 if [ "$ENV" = "" ]; then
     echo "Please provide a configuration environment name, available environments: "
     ls ./config/*.conf | sed 's/.*\/\(.*\).conf/\1/'
@@ -145,6 +146,7 @@ function initialize_project_sources_svn() {
 }
 
 function initialize_project_configuration() {
+	PWD=$( pwd )	
     project="$1"
     
     echo "==> Adding host record for project virtual host ${bold}${project}.${VIRTUAL_DOMAIN}${normal}..."
@@ -197,8 +199,8 @@ function initialize_project_configuration() {
         # Look for database dumps if any
         count=`ls -1 $src/$PROJECT_PATH_DUMPS/*.sql 2>/dev/null | wc -l`
 
-        if [ $count != 0 ]
-        then              
+        if [ $count != 0 ]; then
+		
             # Database is required:
             databases=$( ls $src/$PROJECT_PATH_DUMPS/*.sql | sed 's/.*\///' )
             for database in $databases; do
@@ -213,13 +215,20 @@ function initialize_project_configuration() {
                 
                 # DROP then CREATE database with mininium
                 # viable data:
-                sql="mysql -u ${SQL_USER} -p${SQL_PASSWORD}"
+                sql="mysql -u ${DB_USER} -p${DB_USER}"
                 echo "DROP   DATABASE  IF EXISTS ${db}" | $sql
                 echo "CREATE DATABASE ${db}" | $sql
                 
                 $sql ${db} < "$src/$PROJECT_PATH_DUMPS/$database"
             done
         fi
+		
+        # If a composer.json is present in the configuration
+        if [ -f "$src/composer.json" ]; then
+            cd "$src"
+            composer install            
+            cd "${PWD}"
+        fi		
     fi
 }
 
