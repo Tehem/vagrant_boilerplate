@@ -18,12 +18,15 @@ if [ ! -f ./config/$ENV.conf ]; then
     exit
 fi
 
+PROJ=$( echo "$2" | sed 's,/,,g' )
+
 #######################################################################
 
 echo "Reading config $ENV.conf...."
 source ./config/$ENV.conf
 
-PROJECTS=( `cat "./config/projects.list" `)
+#PROJECTS=( `cat "./config/projects.list" `)
+source ./config/projects.list
 
 function system_check() {
     
@@ -73,18 +76,28 @@ function system_create_folders() {
 
 function projects_install() {
 
+    installed=false
+
     for project in ${PROJECTS[@]}
     do
         if [[ ! $project == \#* ]] ;
         then
-            project_init "$project"    
+            project_name=$( echo "$project" | sed 's/.*\/\(.*\)\.git/\1/' )
+            if [ "$PROJ" == "" ] || [ $project_name == "$PROJ" ]; then
+                project_init "$project" 
+                installed=true   
+            fi
         fi
     done
 
-    sudo service apache2 restart
-    
-    if [ true == "$NODE_ENABLED" ]; then
-        sudo service supervisor restart
+    if [ true == "$installed" ]; then
+        sudo service apache2 restart
+        
+        if [ true == "$NODE_ENABLED" ]; then
+            sudo service supervisor restart
+        fi
+    else
+        echo '==> Nothing to install...'
     fi
 
     echo "${bold}==> Install done!${normal}"
@@ -93,7 +106,7 @@ function projects_install() {
 function project_init() {
 
     project_path="$1"
-    project_type=$( echo "$project_path" | sed -r 's/(^git|^svn).*/\1/' )
+    project_type=$( echo "$project_path" | sed -r 's/(ssh:\/\/)(git|^git|^svn).*/\2/' )
 
     if [ 'git' == $project_type ] && [ true == "$GIT_ENABLED" ]; then
         project=$( echo "$project_path" | sed 's/.*\/\(.*\)\.git/\1/' )

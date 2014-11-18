@@ -70,9 +70,7 @@ function system_configure() {
 	system_check_user
 
 	system_check_folders
-    
-    #system_configure_sql
-    
+
     if [ true == "$GIT_ENABLED" ]; then
         system_configure_git
     fi
@@ -113,11 +111,11 @@ function system_check_folders() {
 
 function system_clean_folders() {
     
-    if [ -d "$TM_PATH_VAR" ]; then sudo rm -Rf "$TM_PATH_VAR"; fi
-    if [ -d "$TM_PATH_LOG" ]; then sudo rm -Rf "$TM_PATH_LOG"; fi
-    if [ -d "$TM_PATH_ETC" ]; then sudo rm -Rf "$TM_PATH_ETC"; fi
-    if [ -d "$TM_PATH_CACHE" ]; then sudo rm -Rf "$TM_PATH_CACHE"; fi
-    if [ -d "$TM_PATH_SOURCE" ]; then sudo rm -Rf "$TM_PATH_SOURCE"; fi
+    if [ -d "$TM_PATH_VAR" ]; then sudo rm -Rf "$TM_PATH_VAR/*"; fi
+    if [ -d "$TM_PATH_LOG" ]; then sudo rm -Rf "$TM_PATH_LOG/*"; fi
+    if [ -d "$TM_PATH_ETC" ]; then sudo rm -Rf "$TM_PATH_ETC/*"; fi
+    if [ -d "$TM_PATH_CACHE" ]; then sudo rm -Rf "$TM_PATH_CACHE/*"; fi
+    if [ -d "$TM_PATH_SOURCE" ]; then sudo rm -Rf "$TM_PATH_SOURCE/*"; fi
 }
 
 function system_create_folders() {
@@ -144,7 +142,7 @@ function system_create_folders() {
     fi
 }
 
-function system_configure_sql() {
+function initialize_sql() {
 
     echo "${bold}==> Setup SQL environment...${normal}"
     echo "==> Using DB user" $DB_USER
@@ -154,11 +152,11 @@ function system_configure_sql() {
     sql="mysql -u ${SQL_USER} -p${SQL_PASSWORD}"
 
     # Look for database dumps if any
-    count=`ls -1 ${SHARED_SETUP_MOUNT}/*.sql 2>/dev/null | wc -l`
+    count=`ls -1 ${SHARED_SETUP_MOUNT}/sql/*.sql 2>/dev/null | wc -l`
 
     if [ $count != 0 ]
     then 
-        databases=$( ls $SHARED_SETUP_MOUNT/*.sql | sed 's/.*\///' )
+        databases=$( ls $SHARED_SETUP_MOUNT/sql/*.sql | sed 's/.*\///' )
         for database in $databases; do
             
             # Extract database name:
@@ -173,7 +171,7 @@ function system_configure_sql() {
             echo "DROP   DATABASE  IF EXISTS ${db}" | $sql
             echo "CREATE DATABASE ${db}" | $sql
             
-            $sql ${db} < "$SHARED_SETUP_MOUNT/$database"
+            $sql ${db} < "$SHARED_SETUP_MOUNT/sql/$database"
         done
     fi  
 
@@ -192,9 +190,9 @@ function system_configure_git() {
         echo -e "[user]\n\tname = $GIT_NAME\n\temail = $GIT_EMAIL" | sudo -u $USER tee -a /home/$USER/.gitconfig          
     fi  
     
-    if [ -f $SHARED_SETUP_MOUNT/.gitconfig ]; then
+    if [ -f $SHARED_SETUP_MOUNT/config/git/.gitconfig ]; then
         echo '==> Using custom .gitconfig file...'
-        sudo -u $USER cp $SHARED_SETUP_MOUNT/.gitconfig /home/$USER/.gitconfig
+        sudo -u $USER cp $SHARED_SETUP_MOUNT/config/git/.gitconfig /home/$USER/.gitconfig
     fi  
   
 }
@@ -205,6 +203,7 @@ function system_install() {
 
     echo "${bold}==> Install system ...${normal}"
     install_system_packages
+    initialize_sql
     initialize_ssh
 	
 	if [ true == "$ANSIBLE_ENABLED" ]; then
@@ -230,7 +229,7 @@ function install_system_packages() {
 	sudo apt-get -y install mysql-server
 	
     # Installation des paquets utiles:
-    sudo apt-get -y install openssh-client openssh-server php5 libapache2-mod-php5 php5-cli php5-mysql php5-gd curl php5-curl puppet
+    sudo apt-get -y install openssh-client openssh-server php5 libapache2-mod-php5 php5-cli php5-mysql php5-gd curl php5-curl php5-xsl php5-xdebug libssh2-php puppet
 
     sudo debconf-set-selections <<< 'phpmyadmin phpmyadmin/reconfigure-webserver multiselect apache2'
     sudo debconf-set-selections <<< 'phpmyadmin phpmyadmin/dbconfig-install boolean true'
@@ -300,18 +299,60 @@ function install_system_packages() {
 			sudo mv /tmp/selenium-server-standalone-2.35.0.jar /usr/local/bin	
 		fi		
 	fi
-	
-    # Composer installation:
-    curl -sS https://getcomposer.org/installer | php
-    sudo mv composer.phar /usr/local/bin/composer
-	
+
+    # php tools and scripts
+    install_php_tools
+
     # MySQL user creation:
+    SQL_USER=$DB_USER
+    SQL_PASSWORD=$DB_USER    
     echo "${bold}==> Create DB user" $SQL_USER "...${normal}"
     echo "GRANT ALL PRIVILEGES ON *.* TO '${SQL_USER}'@'localhost' IDENTIFIED BY '${SQL_PASSWORD}' WITH GRANT OPTION;" | mysql -u root -proot	
 	
     sudo php5enmod mcrypt
     sudo a2enmod rewrite
     sudo a2enmod ssl    
+}
+
+function install_php_tools() {
+
+    echo '==> Install PHP tools ...'
+
+    # Composer installation:
+    curl -sS https://getcomposer.org/installer | php
+    sudo mv composer.phar /usr/local/bin/composer
+
+    # PHPunit
+    composer global require phpunit/phpunit
+
+    # PHP_CodeSniffer
+    composer global require squizlabs/php_codesniffer
+
+    # PHPLOC
+    composer global require phploc/phploc
+
+    # PHP_Depend
+    composer global require pdepend/pdepend
+
+    # PHPMD
+    composer global require phpmd/phpmd
+
+    # PHPCPD
+    composer global require sebastian/phpcpd
+
+    # phpDox
+    composer global require theseer/phpdox   
+
+    # Phing
+    composer global require phing/phing     
+
+    if [ -d /home/$USER/.composer/vendor/bin ]; then
+        # Remove existing line from the profile file:
+        sudo sed -i "/^composer.*$/d" /home/$USER/.bashrc
+
+        # Append the new line to the bash profile:
+        echo "PATH=$PATH:/home/vagrant/.composer/vendor/bin/" | sudo -u $USER tee -a /home/$USER/.bashrc
+    fi
 }
 
 function initialize_ssh() {
@@ -343,7 +384,7 @@ function initialize_ssh() {
         sudo chown $USER:$USER /home/$USER/.ssh/config
     fi    
 
-    # Look for database dumps if any
+    # Look for private keys
     count=`ls -1 ${SHARED_SETUP_MOUNT}/ssh/*.rsa 2>/dev/null | wc -l`
 
     if [ $count != 0 ]
@@ -351,10 +392,10 @@ function initialize_ssh() {
         keys=$( ls $SHARED_SETUP_MOUNT/ssh/*.rsa | sed 's/.*\///' )
         for key in $keys; do
             
-            # Extract database name:
+            # Extract key name
             name=$( echo $key | sed 's/\.rsa//' )
             
-            # Adapt database name to the environment:
+            # Install key
             echo "${bold}==> Importing key ${name}...${normal}"
             sudo cp $SHARED_SETUP_MOUNT/ssh/$key /home/$USER/.ssh/$key
             sudo chown $USER:$USER /home/$USER/.ssh/$key
@@ -376,9 +417,9 @@ function install_ansible () {
         sudo -u $USER touch /home/$USER/ansible_hosts
     fi	
 	
-	if [ -f $SHARED_SETUP_MOUNT/ansible_hosts ]; then
+	if [ -f $SHARED_SETUP_MOUNT/config/ansible_hosts ]; then
 		echo '==> Using custom ansible_hosts file...'
-		sudo -u $USER cp $SHARED_SETUP_MOUNT/ansible_hosts /home/$USER/ansible_hosts
+		sudo -u $USER cp $SHARED_SETUP_MOUNT/config/ansible_hosts /home/$USER/ansible_hosts
 	fi	
 	
     # Remove existing line from the profile file:
@@ -415,8 +456,16 @@ function install_phabricator_tools {
         sudo sed -i "/^arc_tools.*$/d" /home/$USER/.bashrc
 
         # Append the new line to the bash profile:
-        echo "PATH=$PATH:/home/$USER/arc_tools/arcanist/bin/" | sudo -u $USER tee -a /home/$USER/.bashrc
+        echo "PATH=$PATH:/home/vagrant/.composer/vendor/bin/:/home/$USER/arc_tools/arcanist/bin/" | sudo -u $USER tee -a /home/$USER/.bashrc
     fi
+
+    if [ -f $SHARED_SETUP_MOUNT/config/custom.pem ]; then
+        echo '==> Using provided custom PEM for arcanist...'
+        if [ ! -d /home/$USER/arc_tools/libphutil/resources/ssl ]; then
+            sudo -u $USER mkdir /home/$USER/arc_tools/libphutil/resources/ssl
+        fi
+        sudo -u $USER cp $SHARED_SETUP_MOUNT/config/custom.pem /home/$USER/arc_tools/libphutil/resources/ssl
+    fi  
 }
 
 function install_jenkins {
